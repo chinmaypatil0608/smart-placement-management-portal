@@ -1,0 +1,13 @@
+package com.example.placement.controller;
+import com.example.placement.model.*; import com.example.placement.repository.*; import com.example.placement.security.JwtService; import jakarta.validation.Valid; import jakarta.validation.constraints.*; import org.springframework.http.*; import org.springframework.security.crypto.password.PasswordEncoder; import org.springframework.web.bind.annotation.*; import org.springframework.web.server.ResponseStatusException; import java.util.*; import org.springframework.transaction.annotation.Transactional;
+@RestController @RequestMapping("/api/auth") @CrossOrigin(origins="http://localhost:5173")
+public class AuthController {
+ private final UserAccountRepository users; private final StudentRepository students; private final PasswordEncoder encoder; private final JwtService jwt;
+ public AuthController(UserAccountRepository u,StudentRepository s,PasswordEncoder e,JwtService j){users=u;students=s;encoder=e;jwt=j;}
+ public record RegisterRequest(@NotBlank String name,@Email @NotBlank String email,@NotBlank String department,@DecimalMin("0.0") @DecimalMax("10.0") double cgpa,@Size(min=8,max=72) String password){}
+ public record LoginRequest(@Email @NotBlank String email,@NotBlank String password){}
+ public record AuthResponse(String token,String role,String email,Long studentId,String name,Double cgpa){}
+ @PostMapping("/register") @ResponseStatus(HttpStatus.CREATED) @Transactional public AuthResponse register(@Valid @RequestBody RegisterRequest r){String email=r.email().trim().toLowerCase(Locale.ROOT);if(users.existsByEmailIgnoreCase(email))throw new ResponseStatusException(HttpStatus.CONFLICT,"An account with this email already exists"); Student st=students.findByEmailIgnoreCase(email).orElseGet(()->{Student x=new Student();x.setName(r.name().trim());x.setEmail(email);x.setDepartment(r.department().trim());x.setCgpa(r.cgpa());return students.save(x);}); UserAccount u=users.save(new UserAccount(email,encoder.encode(r.password()),"STUDENT",st));return response(u);}
+ @PostMapping("/login") public AuthResponse login(@Valid @RequestBody LoginRequest r){UserAccount u=users.findByEmailIgnoreCase(r.email().trim()).orElseThrow(()->new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Invalid email or password"));if(!encoder.matches(r.password(),u.getPasswordHash()))throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Invalid email or password");return response(u);}
+ private AuthResponse response(UserAccount u){return new AuthResponse(jwt.generate(u.getEmail(),u.getRole()),u.getRole(),u.getEmail(),u.getStudent()==null?null:u.getStudent().getId(),u.getStudent()==null?"Administrator":u.getStudent().getName(),u.getStudent()==null?null:u.getStudent().getCgpa());}
+}
